@@ -1,0 +1,48 @@
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@100..900&family=Prata&display=swap');
+@import "tailwindcss";
+
+
+input, button {
+  @apply focus:outline-none;
+}
+
+a.active hr{
+    display: block;
+}
+*{
+    font-family: Outfit;
+}
+::-webkit-scrollbar{
+  display: none;
+}
+.prata-regular {
+    font-family: "Prata", serif;
+    font-weight: 400;
+    font-style: normal;
+  }
+
+  .sriracha-regular {
+    font-family: "Sriracha", cursive;
+    font-weight: 400;
+    font-style: normal;
+  }
+  .moon-dance-regular {
+    font-family: "Moon Dance", cursive;
+    font-weight: 400;
+    font-style: normal;
+  }
+  .outfit-regular {
+    font-family: "Outfit", sans-serif;
+    font-weight: 400;
+    font-style: normal;
+  }
+  
+  
+  @media (max-width:640px){
+    a.active{
+      background-color: rgba(27, 27, 27, 0.667);
+      color: #fffffffa;
+    }
+
+  }
+  
