@@ -14,12 +14,14 @@ import {
   ArrowRight,
   Loader2,
 } from "lucide-react";
+import { useNavigate } from "react-router-dom";
 
 const LoginPage = () => {
   const [authMode, setAuthMode] = useState("SignIn");
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
-  const { token, setToken, navigate, backendUrl } = useContext(ContextShop);
+  const { token, setToken, backendUrl } = useContext(ContextShop);
+  const navigate = useNavigate();
 
   const [form, setForm] = useState({
     name: "",
@@ -47,10 +49,17 @@ const LoginPage = () => {
     try {
       const res = await axios.post(url, payload);
 
-      if (res.data.success && res.data.token) {
-        localStorage.setItem("token", res.data.token);
-        setToken(res.data.token);
-        toast.success(`${isLogin ? "Login" : "Registration"} Successful!`);
+      if (res.data.success) {
+        if (isLogin) {
+          // For login, set token and redirect
+          localStorage.setItem("token", res.data.token);
+          setToken(res.data.token);
+          toast.success("Login Successful!");
+        } else {
+          // For registration, redirect to verification page
+          toast.success("Registration Successful! Please verify your email.");
+          navigate("/verify", { state: { email: form.email } });
+        }
       } else {
         toast.error(res.data.message || "Authentication failed");
       }
@@ -63,7 +72,6 @@ const LoginPage = () => {
   };
 
   const switchAuthMode = () => {
-    // Reset form when switching modes
     setForm({
       name: "",
       email: "",
@@ -105,7 +113,6 @@ const LoginPage = () => {
   return (
     <div className="min-h-[80vh] flex items-center justify-center py-12 px-4 sm:px-6 lg:px-8">
       <div className="w-full max-w-md space-y-8">
-        {/* Card with slide animation  */}
         <div className="bg-white shadow-xl rounded-2xl overflow-hidden relative">
           <AnimatePresence mode="wait">
             {authMode === "SignIn" ? (
@@ -389,7 +396,6 @@ const LoginPage = () => {
           </AnimatePresence>
         </div>
 
-        {/* Trust badges */}
         <motion.div
           initial={{ opacity: 0 }}
           animate={{ opacity: 1, transition: { delay: 0.5 } }}
