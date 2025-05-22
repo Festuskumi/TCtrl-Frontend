@@ -23,17 +23,22 @@ const convertToStateFormat = (array) => {
   const formatted = {};
   array.forEach(({ product, productId, size, quantity }) => {
     const id = product?._id || productId;
-    if (!formatted[id]) formatted[id] = {};
-    formatted[id][size] = { quantity };
+    if (id && size && quantity > 0) { // Add validation
+      if (!formatted[id]) formatted[id] = {};
+      formatted[id][size] = { quantity };
+    }
   });
   return formatted;
 };
 
 const convertToApiFormat = (stateObj) => {
   const result = [];
-  Object.entries(stateObj).forEach(([productId, sizes]) => {
-    Object.entries(sizes).forEach(([size, { quantity }]) => {
-      result.push({ productId, size, quantity });
+  Object.entries(stateObj || {}).forEach(([productId, sizes]) => {
+    Object.entries(sizes || {}).forEach(([size, data]) => {
+      const quantity = data?.quantity || 0;
+      if (quantity > 0) { // Only include items with positive quantity
+        result.push({ productId, size, quantity });
+      }
     });
   });
   return result;
@@ -43,15 +48,18 @@ const loadFromLocalStorage = (key) => {
   try {
     const data = localStorage.getItem(key);
     return data ? JSON.parse(data) : {};
-  } catch {
+  } catch (error) {
+    console.error(`Error loading ${key} from localStorage:`, error);
     return {};
   }
 };
 
 const saveToLocalStorage = (key, data) => {
   try {
-    localStorage.setItem(key, JSON.stringify(data));
-  } catch {}
+    localStorage.setItem(key, JSON.stringify(data || {}));
+  } catch (error) {
+    console.error(`Error saving ${key} to localStorage:`, error);
+  }
 };
 
 const shopReducer = (state, action) => {
@@ -124,15 +132,24 @@ const ContextShopProvider = ({ children }) => {
   const [state, dispatch] = useReducer(shopReducer, initialState);
   const [products, setProducts] = useState([]);
   const [token, setToken] = useState("");
-  const [isFirstLoad, setIsFirstLoad] = useState(true);
+  const [hasLoadedLocalData, setHasLoadedLocalData] = useState(false);
 
   useEffect(() => {
     const fetchProducts = async () => {
       try {
         const res = await axios.get(`${backendUrl}/api/products/list`);
-        if (res.data.success) setProducts(res.data.products);
-        else toast.error(res.data.message);
-      } catch {
+        if (res.data.success) {
+          const cleanProducts = res.data.products.map(p => ({
+            ...p,
+            _id: String(p._id),
+            price: parseFloat(p.price || "0")
+          }));
+          setProducts(cleanProducts);
+        } else {
+          toast.error(res.data.message);
+        }
+      } catch (error) {
+        console.error("Failed to load products:", error);
         toast.error("Failed to load products");
       }
     };
@@ -145,39 +162,47 @@ const ContextShopProvider = ({ children }) => {
   }, [token]);
 
   useEffect(() => {
-    if (isFirstLoad) {
-      dispatch({ type: "SET_CART", payload: loadFromLocalStorage(CART_STORAGE_KEY) });
-      dispatch({ type: "SET_WISHLIST", payload: loadFromLocalStorage(WISHLIST_STORAGE_KEY) });
-      setIsFirstLoad(false);
+    if (!hasLoadedLocalData) {
+      const localCart = loadFromLocalStorage(CART_STORAGE_KEY);
+      const localWishlist = loadFromLocalStorage(WISHLIST_STORAGE_KEY);
+      dispatch({ type: "SET_CART", payload: localCart });
+      dispatch({ type: "SET_WISHLIST", payload: localWishlist });
+      setHasLoadedLocalData(true);
     }
-  }, [isFirstLoad]);
+  }, [hasLoadedLocalData]);
 
   useEffect(() => {
+    if (!token || !hasLoadedLocalData) return;
+
     const syncCartWithServer = async () => {
       try {
-        const res = await axios.get(
-          `${backendUrl}/api/cart/get`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const res = await axios.get(`${backendUrl}/api/cart/get`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (res.data.success) {
           const serverCart = convertToStateFormat(res.data.cart || []);
           const localCart = loadFromLocalStorage(CART_STORAGE_KEY);
           const mergedCart = { ...localCart };
+
           Object.entries(serverCart).forEach(([productId, sizes]) => {
             if (!mergedCart[productId]) mergedCart[productId] = {};
             Object.entries(sizes).forEach(([size, { quantity }]) => {
-              mergedCart[productId][size] = Math.max(
-                mergedCart[productId]?.[size]?.quantity || 0,
-                quantity
-              );
+              mergedCart[productId][size] = {
+                quantity: Math.max(
+                  mergedCart[productId]?.[size]?.quantity || 0,
+                  quantity
+                )
+              };
             });
           });
+
           dispatch({ type: "SET_CART", payload: mergedCart });
-          await axios.post(
-            `${backendUrl}/api/cart/sync`,
-            { items: convertToApiFormat(mergedCart) },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
+
+          await axios.post(`${backendUrl}/api/cart/sync`, {
+            items: convertToApiFormat(mergedCart)
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
         }
       } catch (err) {
         console.error("Cart sync failed", err);
@@ -186,42 +211,41 @@ const ContextShopProvider = ({ children }) => {
 
     const syncWishlistWithServer = async () => {
       try {
-        const res = await axios.get(
-          `${backendUrl}/api/wishlist/get`,
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
+        const res = await axios.get(`${backendUrl}/api/wishlist/get`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
         if (res.data.success) {
           const serverWishlist = convertToStateFormat(res.data.wishlist || []);
           const localWishlist = loadFromLocalStorage(WISHLIST_STORAGE_KEY);
           const mergedWishlist = { ...localWishlist, ...serverWishlist };
           dispatch({ type: "SET_WISHLIST", payload: mergedWishlist });
-          await axios.post(
-            `${backendUrl}/api/wishlist/sync`,
-            { items: convertToApiFormat(mergedWishlist) },
-            { headers: { Authorization: `Bearer ${token}` } }
-          );
+          await axios.post(`${backendUrl}/api/wishlist/sync`, {
+            items: convertToApiFormat(mergedWishlist)
+          }, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
         }
       } catch (err) {
         console.error("Wishlist sync failed", err);
       }
     };
 
-    if (token && !isFirstLoad) {
-      syncCartWithServer();
-      syncWishlistWithServer();
-    }
-  }, [token, isFirstLoad]);
+    syncCartWithServer();
+    syncWishlistWithServer();
+  }, [token, hasLoadedLocalData]);
 
   const AddCart = async (itemId, productSize) => {
     dispatch({ type: "ADD_TO_CART", payload: { cartItemId: itemId, cartSize: productSize } });
     if (token) {
       try {
-        await axios.post(
-          `${backendUrl}/api/cart/add`,
-          { ItemId: itemId, size: productSize },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      } catch (err) {
+        await axios.post(`${backendUrl}/api/cart/add`, {
+          ItemId: itemId,
+          size: productSize
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch (error) {
+        console.error("Failed to update cart on server:", error);
         toast.error("Failed to update cart on server");
       }
     } else {
@@ -235,12 +259,14 @@ const ContextShopProvider = ({ children }) => {
     if (token) {
       try {
         const url = isWishlisted ? "remove" : "add";
-        await axios.post(
-          `${backendUrl}/api/wishlist/${url}`,
-          { productId: itemId, size: productSize },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      } catch {
+        await axios.post(`${backendUrl}/api/wishlist/${url}`, {
+          productId: itemId,
+          size: productSize
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch (error) {
+        console.error("Failed to update wishlist on server:", error);
         toast.error("Failed to update wishlist on server");
       }
     } else if (!isWishlisted) {
@@ -252,46 +278,66 @@ const ContextShopProvider = ({ children }) => {
     dispatch({ type: "UPDATE_QUANTITY", payload: { updateItemId: itemId, size, quantity } });
     if (token) {
       try {
-        await axios.post(
-          `${backendUrl}/api/cart/update-item`,
-          { ItemId: itemId, size, quantity },
-          { headers: { Authorization: `Bearer ${token}` } }
-        );
-      } catch {
+        await axios.post(`${backendUrl}/api/cart/update-item`, {
+          ItemId: itemId,
+          size,
+          quantity
+        }, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+      } catch (error) {
+        console.error("Failed to update quantity on server:", error);
         toast.error("Failed to update quantity on server");
       }
     }
   };
 
-  const syncLocalDataToAccount = async () => {
-    if (!token) return;
+  const GetCartNum = () => {
     try {
-      await axios.post(
-        `${backendUrl}/api/cart/sync`,
-        { items: convertToApiFormat(state.CartProducts) },
-        { headers: { Authorization: `Bearer ${token}` } }
+      return Object.values(state.CartProducts || {}).reduce(
+        (acc, sizes) => acc + Object.values(sizes || {}).reduce((sum, { quantity }) => sum + (quantity || 0), 0),
+        0
       );
-      await axios.post(
-        `${backendUrl}/api/wishlist/sync`,
-        { items: convertToApiFormat(state.WishlistProducts) },
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      toast.success("Synced local data with account");
-    } catch {
-      toast.error("Failed to sync account data");
+    } catch (error) {
+      console.error("Error calculating cart number:", error);
+      return 0;
     }
   };
 
-  const GetCartNum = () => Object.values(state.CartProducts).reduce((acc, sizes) => acc + Object.values(sizes).reduce((sum, { quantity }) => sum + quantity, 0), 0);
-  const Getwishlistnum = () => Object.values(state.WishlistProducts).reduce((acc, sizes) => acc + Object.keys(sizes).length, 0);
+  const Getwishlistnum = () => {
+    try {
+      return Object.values(state.WishlistProducts || {}).reduce(
+        (acc, sizes) => acc + Object.keys(sizes || {}).length,
+        0
+      );
+    } catch (error) {
+      console.error("Error calculating wishlist number:", error);
+      return 0;
+    }
+  };
+
   const GetCartTotal = () => {
-    if (!products.length) return 0;
-    return Object.entries(state.CartProducts).reduce((total, [itemId, sizes]) => {
-      const item = products.find((p) => String(p._id) === String(itemId));
-      if (!item) return total;
-      const subtotal = Object.values(sizes).reduce((sum, { quantity }) => sum + item.price * quantity, 0);
-      return total + subtotal;
-    }, 0);
+    try {
+      if (!products || products.length === 0) return 0;
+      
+      return Object.entries(state.CartProducts || {}).reduce((total, [itemId, sizes]) => {
+        const product = products.find(p => String(p._id) === String(itemId));
+        if (!product) return total;
+        
+        const price = parseFloat(product.price || "0");
+        if (isNaN(price)) return total;
+        
+        const subtotal = Object.values(sizes || {}).reduce((sum, { quantity }) => {
+          const qty = parseInt(quantity) || 0;
+          return sum + (price * qty);
+        }, 0);
+        
+        return total + subtotal;
+      }, 0);
+    } catch (error) {
+      console.error("Error calculating cart total:", error);
+      return 0;
+    }
   };
 
   return (
@@ -316,8 +362,7 @@ const ContextShopProvider = ({ children }) => {
         AddCart,
         updateQuantity,
         GetCartNum,
-        GetCartTotal,
-        syncLocalDataToAccount,
+        GetCartTotal
       }}
     >
       {children}
