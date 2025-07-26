@@ -12,6 +12,7 @@
 - [Installation](#-installation)
 - [Environment Configuration](#-environment-configuration)
 - [Available Scripts](#-available-scripts)
+- [Running Tests](#-running-tests)
 - [Component Documentation](#-component-documentation)
 - [State Management](#-state-management)
 - [Styling Guide](#-styling-guide)
@@ -230,6 +231,21 @@ Runs ESLint to check for code quality issues.
 
 ### `npm run lint:fix` or `yarn lint:fix`
 Automatically fixes ESLint issues when possible.
+
+### `npm test`
+Runs the Vitest test suite using React Testing Library. Ensure dependencies are installed with `npm install` before running.
+
+---
+
+## 🧪 Running Tests
+
+After installing dependencies, execute:
+
+```bash
+npm test
+```
+
+This command runs the Vitest suite configured for React components.
 
 ---
 
